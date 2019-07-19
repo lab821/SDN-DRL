@@ -1,0 +1,138 @@
+import requests
+import json
+import time
+import socket
+import numpy as np
+
+def iptoint(ip):
+    ip_l = np.array([int(num) for num in ip.split('.')])
+    cst = np.array([256*256*256, 256*256, 256, 1])
+    return (ip_l*cst).sum()
+
+class Flow:
+    """
+    A flow is just a flow entry in Switch, including:
+    match:{dl_type, nw_src, nw_dst, nw_proto, tp_src, tp_dst}
+    actions: ['OUTPUT:PORT', 'METER:id']
+    packet_count:
+    byte_count:
+    priority:
+    table_id:
+    length:
+    idle_timeout:
+    duration_nsec:
+    duration_sec:
+    hard_timeout:
+    flags:
+    cookie:
+    """
+
+    def __init__(self, flow):
+        assert type(flow)==dict, "Type of flow is not 'dict'"
+        self.match = flow['match']
+        self.actions = flow['actions']
+        self.packet_count = flow['packet_count']
+        self.byte_count = flow['byte_count']
+        self.priority = flow['priority']
+        self.table_id = flow['table_id']
+        self.length = flow['length']
+        self.idle_timeout = flow['idle_timeout']
+        self.duration_nsec = flow['duration_nsec']
+        self.duration_sec = flow['duration_sec']
+        self.hard_timeout = flow['hard_timeout']
+        self.flags = flow['flags']
+        self.cookie = flow['cookie']
+    
+    def __str__(self):
+        try:
+            return "ip_src:%s ip_dst:%s proto:%s port_src:%s port_dst:%s" % (self.match['nw_src'], self.match['nw_dst'], self.match['nw_proto'], self.match['tp_src'], self.match['tp_dst'])
+        except Exception:
+            return super(Flow, self).__str__()
+    
+    def contain_five_tuple(self):
+        return 'nw_src' in self.match and 'nw_dst' in self.match and 'nw_proto' in self.match and 'tp_src' in self.match and 'tp_dst' in self.match
+    
+    def __eq__(self, other):
+        return self.contain_five_tuple() and other.contain_five_tuple() and (self.match['nw_src'] == other.match['nw_src']) and (self.match['nw_dst'] == other.match['nw_dst']) and (self.match['nw_proto'] == other.match['nw_proto']) and (self.match['tp_src'] == other.match['tp_src']) and (self.match['tp_dst'] == other.match['tp_dst'])
+
+    def __hash__(self):
+        return hash(json.dumps(self.match))
+
+class FlowCollector:
+    """
+    Given the interface with agent enviroment
+    state: (MAX_STATE_LEN, FLOW_LEN)
+    reward: float value
+
+    Flow format
+    active flow: {five-tuple : {priority, active_time, active_size}}
+    finished flow: {five-tuple : {fct, size}}
+    """
+    MAX_STATE_LEN = 100
+    FLOW_LEN = 7
+    EPSILON = 5 # seconds
+
+    """
+    local infomation collection
+    """
+    REST_URL = "http://localhost:8080/stats/flow/1"
+    
+    def __init__(self):
+        self.flow_stats = {}
+        self.active_flows = {}
+        self.finished_flows = {}
+
+    def __toState__(self):
+        self.active_flows
+
+    def flow_collect(self):
+        # flow collection
+        self.finished_flows = {}
+        response = requests.get(FlowCollector.REST_URL)
+        data = json.loads(response.text)
+        for flow_ in data['1']:
+            flow = Flow(flow_)
+            match = json.dumps(flow.match)
+            pkt_count = flow.packet_count
+            byte_count = flow.byte_count
+            if match in self.flow_stats:
+                if self.flow_stats[match]['packet_count'] == pkt_count:
+                    if match in self.active_flows:
+                        # completed flows
+                        # add a finished flow and delete an active flow
+                        self.finished_flows[match] = {'fct':self.active_flows[match]['active_time'], 'size':self.active_flows[match]['active_size']}
+                        del self.active_flows[match]
+                else:
+                    # active and old flows
+                    if match in self.active_flows:
+                        # continue an active flow
+                        self.active_flows[match]['active_time'] += 1
+                        self.active_flows[match]['byte_count'] += (byte_count - self.flow_stats[match]['byte_count'])
+                    else:
+                        # start an old flow
+                        self.active_flows[match] = {'priority':1, 'active_time':1, 'active_size': byte_count - self.flow_stats[match]['byte_count']}
+                # update flow_stats
+                self.flow_stats[match]['packet_count'] = pkt_count
+                self.flow_stats[match]['byte_count'] = byte_count
+            else:
+                # active and new flows
+                self.flow_stats[match] = {'packet_count':pkt_count, 'byte_count':byte_count}
+                self.active_flows[match] = {'priority':1, 'active_time':1, 'active_size':byte_count}
+        print("Active: ", self.active_flows)
+        print("Completed: ", self.finished_flows)
+        print('**')
+        time.sleep(FlowCollector.EPSILON)
+
+        return self.active_flows, self.finished_flows
+            
+    def action_apply(self, actions):
+        pass
+
+if __name__ == "__main__":
+    response = requests.get(FlowCollector.REST_URL)
+    data = json.loads(response.text)
+    print(Flow(data['1'][0]).__hash__())
+    print(Flow(data['1'][0]).__hash__())
+    collector = FlowCollector()
+    for _ in range(3):
+        print(collector.flow_collect())

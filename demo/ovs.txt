@@ -1,0 +1,2 @@
+ovs-ofctl queue-stats s1
+ovs-ofctl -O OpenFlow13 dump-flows s1
