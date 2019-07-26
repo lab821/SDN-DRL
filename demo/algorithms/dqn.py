@@ -30,7 +30,7 @@ class DQN():
     self.time_step = 0
     self.epsilon = INITIAL_EPSILON
     self.state_dim = env.observation_space.shape[0]
-    self.action_dim = env.action_space.n
+    self.action_dim = (env.action_space.n)**env.NUM_ACTIVE
 
     self.create_Q_network()
     self.create_training_method()
@@ -106,7 +106,7 @@ class DQN():
         return np.argmax(Q_value)
 
   def action(self,state):
-    return np.argmax(self.Q_value.eval(feed_dict = {
+      return np.argmax(self.Q_value.eval(feed_dict = {
       self.state_input:[state]
       })[0])
 

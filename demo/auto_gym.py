@@ -21,6 +21,7 @@ FLOW_LEN = 7
 class AutoSpace(spaces.Space):
     def __init__(self):
         self.content = [1, 10]
+        self.n = len(self.content)
         super(AutoSpace, self).__init__((), np.int64)
     
     def sample(self):
@@ -50,6 +51,7 @@ class AutoEnv(Env):
     NUM_FINISHED = 10
 
     MAX_F = float('inf')
+    MAX_F = float(10**10)
 
     def __init__(self):
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, dtype=np.int, shape=(AutoEnv.NUM_ACTIVE*6+AutoEnv.NUM_FINISHED*7,))
@@ -74,7 +76,7 @@ class AutoEnv(Env):
         Reward: Supposed throughout = flow size / flow finished time(fct),
         reward is defined as sum up the radio between throughout in time t and throughout in time t-1 every finished flow.
 
-        Action: [five_tuple, meter_id]
+        Action: [[five_tuple, meter_id], ...]
         """
         # *********** Apply Action ***************
         self.collector.action_apply(action)
@@ -151,7 +153,8 @@ if __name__ == '__main__':
     env = AutoEnv()
     obs = env.reset()
     for i in range(15):
-        meter_l = [random.choice([1, 10]) for _ in range(AutoEnv.NUM_ACTIVE)]
+        # meter_l = [random.choice([1, 10]) for _ in range(AutoEnv.NUM_ACTIVE)]
+        meter_l = [1 for _ in range(AutoEnv.NUM_ACTIVE)]
         action = gen_action(obs, meter_l)
         obs, reward, done, _ = env.step(action)
         print("state: ", obs)

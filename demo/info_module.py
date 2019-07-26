@@ -98,12 +98,13 @@ class FlowCollector:
     METER_CONFIG_URL: the website of meter configuration
     METER_STATS_URL: the website of meter statistics
     """
-    FLOW_STATS_URL = "http://localhost:8080/stats/flow/1"
-    FLOW_MODIFY_STRICT = "http://localhost:8080/stats/flowentry/modify_strict"
-    METER_CONFIG_URL = "http://localhost:8080/stats/meterconfig/1"
-    METER_STATS_URL = "http://localhost:8080/stats/meter/1"
-    METER_ADD = "http://localhost:8080/stats/meterentry/add"
-    METER_MODIFY = "http://localhost:8080/stats/meterentry/modify"
+    URL = "localhost"
+    FLOW_STATS_URL = "http://"+URL+":8080/stats/flow/1"
+    FLOW_MODIFY_STRICT = "http://"+URL+":8080/stats/flowentry/modify_strict"
+    METER_CONFIG_URL = "http://"+URL+":8080/stats/meterconfig/1"
+    METER_STATS_URL = "http://"+URL+":8080/stats/meter/1"
+    METER_ADD = "http://"+URL+":8080/stats/meterentry/add"
+    METER_MODIFY = "http://"+URL+":8080/stats/meterentry/modify"
     
     def __init__(self):
         self.flow_stats = {}
@@ -217,6 +218,7 @@ class FlowCollector:
                             })
                     fl_d["dpid"] = 1
                     fl_d['actions'] = new_actions
+                    print("fl_d: ", type(fl_d), fl_d)
                     requests.post(FlowCollector.FLOW_MODIFY_STRICT, json.dumps(fl_d))
 
 class Match:
