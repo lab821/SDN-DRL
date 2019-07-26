@@ -218,7 +218,7 @@ class FlowCollector:
                             })
                     fl_d["dpid"] = 1
                     fl_d['actions'] = new_actions
-                    print("fl_d: ", type(fl_d), fl_d)
+                    # print("fl_d: ", type(fl_d), fl_d)
                     requests.post(FlowCollector.FLOW_MODIFY_STRICT, json.dumps(fl_d))
 
 class Match:
