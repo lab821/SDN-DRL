@@ -3,10 +3,9 @@
 case $1 in
 	udp)
 		;;
-	tcp)
-		iperf -s -i 2
-	;;
 	*)
-		iperf -s -i 2
+		iperf3 -s -i 2 &
+		iperf3 -s -i 2 -p 5202 &
+		iperf3 -s -i 2 -p 5203
 	;;
 esac

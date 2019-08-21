@@ -42,11 +42,13 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         # create a default meter entry
         # high meter, numbered by 1, 1000Mbps
-        bands = [parser.OFPMeterBandDrop(rate=1000000, burst_size=100)]
+        HIGH_RATE = 100000
+        SLOW_RATE = 10000
+        bands = [parser.OFPMeterBandDrop(rate=HIGH_RATE, burst_size=0)]
         req = parser.OFPMeterMod(datapath=datapath, command=ofproto.OFPMC_ADD, flags=ofproto.OFPMF_KBPS, meter_id=1, bands=bands)
         datapath.send_msg(req)
-        # slow meter, numbered by 10, 10Mbps
-        bands = [parser.OFPMeterBandDrop(rate=100000, burst_size=100)]
+        # slow meter, numbered by 10, 100Mbps
+        bands = [parser.OFPMeterBandDrop(rate=SLOW_RATE, burst_size=0)]
         req = parser.OFPMeterMod(datapath=datapath, command=ofproto.OFPMC_ADD, flags=ofproto.OFPMF_KBPS, meter_id=10, bands=bands)
         datapath.send_msg(req)
 

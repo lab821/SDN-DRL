@@ -50,16 +50,18 @@ class AutoEnv(Env):
     NUM_ACTIVE = 11
     NUM_FINISHED = 10
 
-    MAX_F = float('inf')
-    MAX_F = float(10**10)
+    # MAX_F = float('inf')
+    # MAX_F = float(10**10)
+    MAX_F = 10
 
     def __init__(self):
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, dtype=np.int, shape=(AutoEnv.NUM_ACTIVE*6+AutoEnv.NUM_FINISHED*7,))
         self.action_space = AutoSpace()
+
+        self.collector = FlowCollector()
         self._start_env()
 
     def _start_env(self):
-        self.collector = FlowCollector()
         self.old_throughout = 0
         print("Done with initializing myself.")
 
@@ -79,6 +81,7 @@ class AutoEnv(Env):
         Action: [[five_tuple, meter_id], ...]
         """
         # *********** Apply Action ***************
+        # print("step-action: ", action)
         self.collector.action_apply(action)
         """
         Flow format
@@ -108,9 +111,14 @@ class AutoEnv(Env):
             size = attr[6]
             throughout += (size / fct)
         if self.old_throughout == 0:
-            reward = AutoEnv.MAX_F
+            if throughout == 0:
+                reward = 1
+            else:
+                reward = AutoEnv.MAX_F
         else:
             reward = throughout / self.old_throughout
+        if reward > AutoEnv.MAX_F:
+            reward = AutoEnv.MAX_F
         self.old_throughout = throughout
         done = False
         return np.array(observation), reward, done, {}
@@ -149,6 +157,19 @@ def gen_action(state, meter_l):
         print(a)
     return actions
 
+def print_state(state):
+    print("State: ")
+    for s in state:
+        print(s)
+
+def print_observation(obs):
+    print("Observation: ")
+    for i in range(AutoEnv.NUM_ACTIVE):
+        print(obs[6*i:6*(i+1)])
+    bl = AutoEnv.NUM_ACTIVE*6
+    for i in range(AutoEnv.NUM_FINISHED):
+        print(obs[bl+7*i:bl+7*(i+1)])
+
 if __name__ == '__main__':
     env = AutoEnv()
     obs = env.reset()
@@ -157,6 +178,7 @@ if __name__ == '__main__':
         meter_l = [1 for _ in range(AutoEnv.NUM_ACTIVE)]
         action = gen_action(obs, meter_l)
         obs, reward, done, _ = env.step(action)
-        print("state: ", obs)
+        # print("Observation: ", obs)
+        print_observation(obs)
         sleep(1)
         # env.step([])

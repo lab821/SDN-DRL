@@ -3,6 +3,9 @@ import json
 import time
 import socket
 import numpy as np
+import threading
+
+remote_url = "10.134.147.138"
 
 def iptoint(ip):
     ip_l = np.array([int(num) for num in ip.split('.')])
@@ -90,7 +93,8 @@ class FlowCollector:
     """
     MAX_STATE_LEN = 100
     FLOW_LEN = 7
-    EPSILON = 3 # seconds
+    EPSILON = 2 # seconds
+    UPDATE_EPSILON = 1 # seconds
 
     """
     local infomation collection
@@ -99,6 +103,7 @@ class FlowCollector:
     METER_STATS_URL: the website of meter statistics
     """
     URL = "localhost"
+    # URL = remote_url
     FLOW_STATS_URL = "http://"+URL+":8080/stats/flow/1"
     FLOW_MODIFY_STRICT = "http://"+URL+":8080/stats/flowentry/modify_strict"
     METER_CONFIG_URL = "http://"+URL+":8080/stats/meterconfig/1"
@@ -110,36 +115,43 @@ class FlowCollector:
         self.flow_stats = {}
         self.active_flows = {}
         self.finished_flows = {}
+        self.mini_stats = {}
 
-    def __simplify__(self):
+        threading.Thread(target=self.while_update).start()
+
+    def __simplify__(self, active_flows, finished_flows):
         active = []
         finished = []
-        for flow in self.active_flows:
+        for flow in active_flows:
             if flow.contain_five_tuple():
                 fl = []
                 fl.extend(flow.to_five_tuple())
                 fl.extend((
-                    self.active_flows[flow]['priority'],
-                    self.active_flows[flow]['active_time'],
-                    self.active_flows[flow]['active_size']
+                    active_flows[flow]['priority'],
+                    active_flows[flow]['active_time'],
+                    active_flows[flow]['active_size']
                 ))
                 active.append(fl)
-        for flow in self.finished_flows:
+        for flow in finished_flows:
             if flow.contain_five_tuple():
                 fl = []
                 fl.extend(flow.to_five_tuple())
                 fl.extend((
-                    self.finished_flows[flow]['fct'],
-                    self.finished_flows[flow]['size']
+                    finished_flows[flow]['fct'],
+                    finished_flows[flow]['size']
                 ))
                 finished.append(fl)
         active.sort(key=lambda a:a[7], reverse=True)
         finished.sort(key=lambda a:a[6], reverse=True)
         return (active, finished)
+    
+    def while_update(self):
+        while True:
+            self.update_stats()
 
-    def flow_collect(self):
+    def update_stats(self):
         # flow collection
-        self.finished_flows = {}
+        # self.finished_flows = {}
         response = requests.get(FlowCollector.FLOW_STATS_URL)
         data = json.loads(response.text)
         for flow_ in data['1']:
@@ -147,8 +159,8 @@ class FlowCollector:
             # match = json.dumps(flow.match)
             pkt_count = flow.packet_count
             byte_count = flow.byte_count
-            if flow in self.flow_stats:
-                if self.flow_stats[flow]['packet_count'] == pkt_count:
+            if flow in self.mini_stats:
+                if self.mini_stats[flow]['packet_count'] == pkt_count:
                     if flow in self.active_flows:
                         # completed flows
                         # add a finished flow and delete an active flow
@@ -158,19 +170,29 @@ class FlowCollector:
                     # active and old flows
                     if flow in self.active_flows:
                         # continue an active flow
-                        self.active_flows[flow]['active_time'] += 1
-                        # print(flow, self.active_flows, self.flow_stats)
-                        self.active_flows[flow]['active_size'] += (byte_count - self.flow_stats[flow]['byte_count'])
+                        self.active_flows[flow]['active_time'] += self.UPDATE_EPSILON
+                        # print(flow, self.active_flows, self.mini_stats)
+                        self.active_flows[flow]['active_size'] += (byte_count - self.mini_stats[flow]['byte_count'])
+                    elif flow in self.finished_flows:
+                        # finished flow -> active flow
+                        self.active_flows[flow] = {'priority':flow.meter_id, 'active_time':self.finished_flows[flow]['fct']+self.UPDATE_EPSILON, 'active_size':byte_count-self.mini_stats[flow]['byte_count']+self.finished_flows[flow]['size']}
+                        del self.finished_flows[flow]
                     else:
                         # start an old flow
-                        self.active_flows[flow] = {'priority':flow.meter_id, 'active_time':1, 'active_size': byte_count - self.flow_stats[flow]['byte_count']}
+                        self.active_flows[flow] = {'priority':flow.meter_id, 'active_time':self.UPDATE_EPSILON, 'active_size': byte_count - self.mini_stats[flow]['byte_count']}
                 # update flow_stats
-                self.flow_stats[flow]['packet_count'] = pkt_count
-                self.flow_stats[flow]['byte_count'] = byte_count
+                self.mini_stats[flow]['packet_count'] = pkt_count
+                self.mini_stats[flow]['byte_count'] = byte_count
             else:
                 # active and new flows
-                self.flow_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count}
-                self.active_flows[flow] = {'priority':flow.meter_id, 'active_time':1, 'active_size':byte_count}
+                self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count}
+                self.active_flows[flow] = {'priority':flow.meter_id, 'active_time':self.UPDATE_EPSILON, 'active_size':byte_count}
+        # print("active_flows: ", self.active_flows)
+        # print("finished_flows: ", self.finished_flows)
+        time.sleep(FlowCollector.UPDATE_EPSILON)
+
+    def flow_collect(self):
+        time.sleep(FlowCollector.EPSILON)
         if False:
             print("Active: ")
             for k in self.active_flows:
@@ -179,9 +201,11 @@ class FlowCollector:
             for k in self.finished_flows:
                 print(k, self.finished_flows[k])
             print('**')
-        time.sleep(FlowCollector.EPSILON)
+        res = self.__simplify__(self.active_flows, self.finished_flows)
+        self.finished_flows = {}
 
-        return self.__simplify__()
+        # print(res)
+        return res
         # return self.active_flows, self.finished_flows
             
     def action_apply(self, actions):
@@ -284,13 +308,16 @@ class Action:
         return self.match.__repr__()+" Meter ID: "+str(self.meter_id)
 
 if __name__ == "__main__":
-    response = requests.get(FlowCollector.FLOW_STATS_URL)
-    data = json.loads(response.text)
-    fl = Flow(data['1'][0])
-    a = iptoint("10.0.0.2")
-    print(inttoip(a))
-    collector = FlowCollector()
-    print(fl)
-    m = Match().from_flow(fl)
-    action = [iptoint(m.nw_src), iptoint(m.nw_dst), m.nw_proto, m.tp_src, m.tp_dst, 10]
-    collector.action_apply([action])
+    # response = requests.get(FlowCollector.FLOW_STATS_URL)
+    # data = json.loads(response.text)
+    # fl = Flow(data['1'][0])
+    # a = iptoint("10.0.0.2")
+    # print(inttoip(a))
+    # collector = FlowCollector()
+    # print(fl)
+    # m = Match().from_flow(fl)
+    # action = [iptoint(m.nw_src), iptoint(m.nw_dst), m.nw_proto, m.tp_src, m.tp_dst, 10]
+    # collector.action_apply([action])
+    fc = FlowCollector()
+    for _ in range(5):
+        fc.flow_collect()

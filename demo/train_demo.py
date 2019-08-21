@@ -7,7 +7,7 @@ import numpy as np
 ENV_NAME = 'CartPole-v0'
 EPISODE = 3000 # Episode limitation
 STEP = 300 # Step limitation in an episode
-TEST = 10 # The number of experiment test every 100 episode
+TEST = 1 # The number of experiment test every 100 episode
 
 NUM_ACTIVE = AutoEnv.NUM_ACTIVE
 NUM_FINISHED = AutoEnv.NUM_FINISHED
@@ -28,6 +28,12 @@ def genAction(state, meter_l):
         action.append(a)
     return action
 
+def rewardReg(reward):
+  if reward <= 1:
+    return reward-1
+  else:
+    return reward/AutoEnv.MAX_F
+
 def main():
   # initialize OpenAI Gym env and dqn agent
 #   env = gym.make(ENV_NAME)
@@ -47,9 +53,11 @@ def main():
       next_state,reward,done,_ = env.step(n_action)
       print("State:", state)
       print("Next State: ", next_state)
-      print("Reward: ", reward)
+      print("Env Reward: ", reward)
       # Define reward for agent
-      reward = -1 if done else 0.1
+      # reward = -1 if done else 0.1
+      reward = rewardReg(reward)
+      print("Agent Reward: ", reward)
       agent.perceive(state,action,reward,next_state,done)
       state = next_state
       if done:
@@ -62,7 +70,11 @@ def main():
         for j in range(STEP):
         #   env.render()
           action = agent.action(state) # direct action for test
-          state,reward,done,_ = env.step(action)
+          meter_l = toMeterList(action, env.action_space.content)
+          print(action, meter_l)
+          n_action = genAction(state, meter_l)
+          state,reward,done,_ = env.step(n_action)
+          print("Reward: ", reward)
           total_reward += reward
           if done:
             break
