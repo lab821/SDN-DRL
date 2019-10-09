@@ -1,24 +1,3 @@
-"""
-Deep Deterministic Policy Gradient (DDPG), Reinforcement Learning.
-DDPG is Actor Critic based algorithm.
-Pendulum example.
-View more on my tutorial page: https://morvanzhou.github.io/tutorials/
-Using:
-tensorflow 1.0
-gym 0.8.0
-"""
-#######################################################################
-# Copyright (C)                                                       #
-# 2016 - 2019 Pinard Liu(liujianping-ok@163.com)                      #
-# https://www.cnblogs.com/pinard                                      #
-# Permission given to modify the code as long as you keep this        #
-# declaration at the top                                              #
-#######################################################################
-
-## https://www.cnblogs.com/pinard/p/10345762.html.html ##
-## 强化学习(十六) 深度确定性策略梯度(DDPG) ##
-
-
 import tensorflow as tf
 import numpy as np
 import gym
