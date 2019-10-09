@@ -44,7 +44,7 @@ done
 
 if [ $a -eq 1 ]
 then
-    for n in $(seq 0 $eth)
+    for n in $(seq 1 $eth)
     do
         echo "sudo ovs-vsctl set interface s${s}-eth${n} ingress_policing_rate=${rate}"
         echo "sudo ovs-vsctl set interface s${s}-eth${n} ingress_policing_burst=${burst}"
@@ -58,7 +58,7 @@ case $answer in
     y)
         if [ $a -eq 1 ]
         then
-            for n in $(seq 0 $eth)
+            for n in $(seq 1 $eth)
             do
                 sudo ovs-vsctl set interface s${s}-eth${n} ingress_policing_rate=${rate}
                 sudo ovs-vsctl set interface s${s}-eth${n} ingress_policing_burst=${burst}

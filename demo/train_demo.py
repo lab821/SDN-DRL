@@ -1,6 +1,7 @@
 from algorithms.dqn import DQN
 import gym
 from auto_gym import AutoEnv, AutoSpace
+from info_module import iptoint,inttoip
 import numpy as np
 # ---------------------------------------------------------
 # Hyper Parameters
@@ -34,6 +35,17 @@ def rewardReg(reward):
   else:
     return reward/AutoEnv.MAX_F
 
+def print_state(obs):
+    # print("Observation: ")
+    for i in range(AutoEnv.NUM_ACTIVE):
+        t = obs[6*i:6*(i+1)]
+        print("(", inttoip(t[0]), inttoip(t[1]), *t[2:], ")")
+    bl = AutoEnv.NUM_ACTIVE*6
+    print("*"*20)
+    for i in range(AutoEnv.NUM_FINISHED):
+        t = obs[bl+7*i:bl+7*(i+1)]
+        print("(", inttoip(t[0]), inttoip(t[1]), *t[2:], ")")
+
 def main():
   # initialize OpenAI Gym env and dqn agent
 #   env = gym.make(ENV_NAME)
@@ -51,8 +63,10 @@ def main():
       meter_l = toMeterList(action, env.action_space.content)
       n_action = genAction(state, meter_l)
       next_state,reward,done,_ = env.step(n_action)
-      print("State:", state)
-      print("Next State: ", next_state)
+      print("State:")
+      print_state(state)
+      print("Next State: ")
+      print_state(next_state)
       print("Env Reward: ", reward)
       # Define reward for agent
       # reward = -1 if done else 0.1

@@ -75,7 +75,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         stat_t.start()
         print("INFO1:", datapath,parser, ofproto)
 
-    def add_flow(self, datapath, priority, match, actions, buffer_id=None, meter_id=0):
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None, meter_id=0, idle_timeout=0):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
@@ -85,12 +85,12 @@ class SimpleSwitch13(app_manager.RyuApp):
             inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                              actions)]
         if buffer_id:
-            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
+            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id, command=ofproto.OFPFC_ADD, flags=ofproto.OFPFF_SEND_FLOW_REM,
                                     priority=priority, match=match,
-                                    instructions=inst)
+                                    instructions=inst, idle_timeout=idle_timeout)
         else:
-            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                    match=match, instructions=inst)
+            mod = parser.OFPFlowMod(datapath=datapath, priority=priority, command=ofproto.OFPFC_ADD, flags=ofproto.OFPFF_SEND_FLOW_REM,
+                                    match=match, instructions=inst, idle_timeout=idle_timeout)
         datapath.send_msg(mod)
 
     def add_meter(self, datapath):
@@ -203,11 +203,11 @@ class SimpleSwitch13(app_manager.RyuApp):
             # verify if we have a valid buffer_id, if yes avoid to send both
             # flow_mod & packet_out
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
-                self.add_flow(datapath, 1, match, actions, msg.buffer_id)
+                self.add_flow(datapath, 1, match, actions, msg.buffer_id, idle_timeout=60)
                 print("I am here")
                 return
             else:
-                self.add_flow(datapath, 1, match, actions)
+                self.add_flow(datapath, 1, match, actions, idle_timeout=60)
                 print("I am here2")
         data = None
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
