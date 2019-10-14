@@ -97,8 +97,8 @@ class FlowCollector:
 
     Format v2: {five-tuple : {packet_count, byte_count, active_time, priority, is_active}}
     """
-    MAX_STATE_LEN = 100
-    FLOW_LEN = 7
+    # MAX_STATE_LEN = 100
+    # FLOW_LEN = 7
     """ make sure that FLOW COLLECT interval is less than idle_timeout(default 60 seconds) """
     EPSILON = 3 # seconds
     UPDATE_EPSILON = 1 # seconds
@@ -115,8 +115,8 @@ class FlowCollector:
     METER_CONFIG_URL: the website of meter configuration
     METER_STATS_URL: the website of meter statistics
     """
-    URL = "localhost"
-    # URL = remote_url
+    # URL = "localhost"
+    URL = remote_url
     FLOW_STATS_URL = "http://"+URL+":8080/stats/flow/1"
     FLOW_MODIFY_STRICT = "http://"+URL+":8080/stats/flowentry/modify_strict"
     FLOW_DELETE = "http://"+URL+":8080/stats/flowentry/delete"
@@ -272,7 +272,10 @@ class FlowCollector:
         # print('finished: ', self.finished_flows)
 
         ## TODO: print self.finished_flows into the log
-        self.logger.print("finished_flows/%s:"%(self.clk)+self.finished_flows.__str__())
+        serialize_flow = {}
+        for fl in self.finished_flows:
+            serialize_flow[fl.__str__()] = self.finished_flows[fl]
+        self.logger.print("finished_flows/%s:"%(self.clk)+json.dumps(serialize_flow))
 
         # delete self.finished_flows from flow table #
         for flow in self.finished_flows:

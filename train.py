@@ -16,15 +16,21 @@ agent = DDPG(a_dim, s_dim, a_bound)
 
 var = 30  # control exploration
 s = env.reset()
-while True:
-    a = agent.choose_action(s)
-    # add randomness to action
-    a = np.clip(np.random.normal(a, var), -a_bound, a_bound)+bl
-    s_, r, done, info = env.step([int(i) for i in a.tolist()]) ## to [int, int, ...]
-    agent.store_transition(s, a, r, s_)
-    
-    if agent.pointer > agent.MEMORY_CAPACITY:
-        var *= 0.9995      # decay the action randomness
-        agent.learn()
-    s = s_
-    print("reward: ", r, " action: ", a)
+
+with open("log/train_log.txt", "w") as logger:
+    while True:
+        a = agent.choose_action(s)
+        # add randomness to action
+        a = np.clip(np.random.normal(a, var), -a_bound, a_bound)+bl
+        aint = [int(i) for i in a.tolist()] ## to [int, int, ...]
+        aint = [1e10]
+        s_, r, done, info = env.step(aint)
+        agent.store_transition(s, a, r, s_)
+        
+        if agent.pointer > agent.MEMORY_CAPACITY:
+            var *= 0.9995      # decay the action randomness
+            agent.learn()
+        s = s_
+        logger.write("reward: "+str(r)+" action: "+aint.__str__()+"\n")
+        logger.flush()
+

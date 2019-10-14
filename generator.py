@@ -56,3 +56,4 @@ if __name__ == "__main__":
         print("Average time: %s"%(sum(stats)/3))
         # sleep(10)
         # t3.start()
+        break

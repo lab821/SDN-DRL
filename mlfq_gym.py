@@ -12,10 +12,10 @@ class MLFQEnv(Env):
     NUM_ACTIVE: when the number of active flows is more than NUM_ACTIVE, select the top NUM_ACTIVE of active flows as the state, sorted by the byte that have been sent.
     NUM_FINISHED: when the number of finished flows is more than NUM_FINISHED, select the top NUM_FINISHED of finished flows as the state, sorted by the size of finished flow.
     """
-    # NUM_ACTIVE = 11
-    # NUM_FINISHED = 10
-    NUM_ACTIVE = 5
-    NUM_FINISHED = 5
+    NUM_ACTIVE = 11
+    NUM_FINISHED = 10
+    # NUM_ACTIVE = 5
+    # NUM_FINISHED = 5
     NUM_THRESHOLD = FlowCollector.num_level-1
 
     # MAX_F = float('inf')
@@ -25,7 +25,7 @@ class MLFQEnv(Env):
     def __init__(self):
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, dtype=np.int, shape=(self.NUM_ACTIVE*6+self.NUM_FINISHED*7,))
         # self.action_space = AutoSpace()
-        self.action_space = spaces.Box(0, 1e10, shape=(self.NUM_THRESHOLD,), dtype=np.int)
+        self.action_space = spaces.Box(0, 1e6, shape=(self.NUM_THRESHOLD,), dtype=np.int)
 
         self.collector = FlowCollector(logger)
         self._start_env()
