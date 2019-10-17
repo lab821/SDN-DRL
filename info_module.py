@@ -220,42 +220,46 @@ class FlowCollector:
             self.clk += self.UPDATE_EPSILON
 
     def update_stats(self):
-        # flow collection
-        response = requests.get(FlowCollector.FLOW_STATS_URL)
-        data = json.loads(response.text)
-        for flow_ in data['1']:
-            flow = Flow(flow_)
-            # match = json.dumps(flow.match)
-            pkt_count = flow.packet_count
-            byte_count = flow.byte_count
-            if flow in self.mini_stats:
-                ## update all value in flow 
-                tmp = self.mini_stats[flow]
-                del self.mini_stats[flow]
-                self.mini_stats[flow] = tmp
-                if self.mini_stats[flow]['packet_count'] == pkt_count:
-                    # marked by finished
-                    self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
-                    self.mini_stats[flow]['priority'] = flow.meter_id
-                    self.mini_stats[flow]['is_active'] = False
+        try:
+            # flow collection
+            response = requests.get(FlowCollector.FLOW_STATS_URL)
+            data = json.loads(response.text)
+            for flow_ in data['1']:
+                flow = Flow(flow_)
+                # match = json.dumps(flow.match)
+                pkt_count = flow.packet_count
+                byte_count = flow.byte_count
+                if flow in self.mini_stats:
+                    ## update all value in flow 
+                    tmp = self.mini_stats[flow]
+                    del self.mini_stats[flow]
+                    self.mini_stats[flow] = tmp
+                    if self.mini_stats[flow]['packet_count'] == pkt_count:
+                        # marked by finished
+                        self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
+                        self.mini_stats[flow]['priority'] = flow.meter_id
+                        self.mini_stats[flow]['is_active'] = False
+                    else:
+                        # update active flow_stats
+                        self.mini_stats[flow]['packet_count'] = pkt_count
+                        self.mini_stats[flow]['byte_count'] = byte_count
+                        self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
+                        self.mini_stats[flow]['priority'] = flow.meter_id
+                        self.mini_stats[flow]['is_active'] = True
                 else:
-                    # update active flow_stats
-                    self.mini_stats[flow]['packet_count'] = pkt_count
-                    self.mini_stats[flow]['byte_count'] = byte_count
-                    self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
-                    self.mini_stats[flow]['priority'] = flow.meter_id
-                    self.mini_stats[flow]['is_active'] = True
-            else:
-                # new flows, marked by active
-                self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count, 'priority':flow.meter_id, 
-                                        'active_time':self.UPDATE_EPSILON, 'is_active':True}
-        # generate active and finished flows
-        self.active_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if self.mini_stats[flow]['is_active'] and not flow.is_empty()}
-        self.finished_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if (not self.mini_stats[flow]['is_active'] and not flow.is_empty())}
-        # print("mini_stats: ", self.mini_stats)
-        # print('active: ', self.active_flows)
-        # print('finished: ', self.finished_flows)
-        time.sleep(FlowCollector.UPDATE_EPSILON)
+                    # new flows, marked by active
+                    self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count, 'priority':flow.meter_id, 
+                                            'active_time':self.UPDATE_EPSILON, 'is_active':True}
+            # generate active and finished flows
+            self.active_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if self.mini_stats[flow]['is_active'] and not flow.is_empty()}
+            self.finished_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if (not self.mini_stats[flow]['is_active'] and not flow.is_empty())}
+            # print("mini_stats: ", self.mini_stats)
+            # print('active: ', self.active_flows)
+            # print('finished: ', self.finished_flows)
+            time.sleep(FlowCollector.UPDATE_EPSILON)
+        except json.decoder.JSONDecodeError as e:
+            print("JsonDecodeError: ", e)
+
 
     def delete_specified_flow(self, flow):
         assert type(flow)==Flow, "Type of flow to delete is not 'Flow'"

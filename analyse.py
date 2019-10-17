@@ -72,6 +72,8 @@ def analysis_log(filename="log/log.txt", save_path="log/"):
         plt.xlabel("time(s)")
         plt.ylabel("average FCT")
 
+        ## throughout
+
         # plt.show()
 
 def toCDF(data_l):
@@ -119,6 +121,6 @@ def analysis_trace(filename):
 
 
 if __name__ == "__main__":
-    # analysis_log("log/no_schedule_log.txt")
-    analysis_trace("log/trace200.txt")
+    analysis_log("log/log.txt")
+    # analysis_trace("log/trace200.txt")
     plt.show()
