@@ -34,3 +34,5 @@ with open("log/train_log.txt", "w") as logger:
         logger.write("reward: "+str(r)+" action: "+aint.__str__()+"\n")
         logger.flush()
 
+
+# print("ok")
