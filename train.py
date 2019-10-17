@@ -36,3 +36,4 @@ with open("log/train_log.txt", "w") as logger:
 
 
 # print("ok")
+# print("hello")
