@@ -50,9 +50,12 @@ class Flow:
         self.flags = flow['flags']
         self.cookie = flow['cookie']
         self.meter_id = 1
+        self.queue_id = 0
         for entry in flow['actions']:
             if entry.find("METER") is not -1:
                 self.meter_id = int(entry.split(":")[1])
+            if entry.find("SET_QUEUE") is not -1:
+                self.queue_id = int(entry.split(":")[1])
     
     def is_empty(self):
         return self.match == {}
@@ -115,8 +118,8 @@ class FlowCollector:
     METER_CONFIG_URL: the website of meter configuration
     METER_STATS_URL: the website of meter statistics
     """
-    # URL = "localhost"
-    URL = remote_url
+    URL = "localhost"
+    # URL = remote_url
     FLOW_STATS_URL = "http://"+URL+":8080/stats/flow/1"
     FLOW_MODIFY_STRICT = "http://"+URL+":8080/stats/flowentry/modify_strict"
     FLOW_DELETE = "http://"+URL+":8080/stats/flowentry/delete"
@@ -135,10 +138,12 @@ class FlowCollector:
         """ mini_stats: {flow(five_tuple) : packet_count,byte_count,priority,active_time,is_active} """
         self.mini_stats = {} # update flow stats
 
-        self.thresholds = [100] # len(self.threshold) is num_level
-        self.threshold_sum = [100]
-        self.METER_ID = [1, 2] # meter id according to each queue from high prio to low
+        self.thresholds = [100000] # len(self.threshold) is num_level
+        self.threshold_sum = [100000]
+        # self.METER_ID = [1, 2] # meter id according to each queue from high prio to low
+        self.QUEUES = [0, 1] # queue id according to each queue from high prio to low
 
+        self.lock = threading.Lock()
         threading.Thread(target=self.while_update).start()
         threading.Thread(target=self.mark_prio).start()
     
@@ -157,20 +162,20 @@ class FlowCollector:
         ## calculate the priority flow belongs to, als called meter id
         for i in range(len(self.threshold_sum)):
             if count < self.threshold_sum[i]:
-                return self.METER_ID[i]
-        return self.METER_ID[-1]
+                return self.QUEUES[i]
+        return self.QUEUES[-1]
 
     def mark_prio(self):
         while True:
             actions = []
             for flow in self.active_flows:
-                mid = self.judge_level(flow.packet_count)
-                if mid != flow.meter_id:
-                    # queue level not match meter id
+                qid = self.judge_level(flow.packet_count)
+                if qid != flow.queue_id:
+                    # queue level not match queue id
                     action = flow.to_five_tuple()
-                    action.extend((mid,))
+                    action.extend((qid,))
                     actions.append(action)
-            # make flow-meter_id take effect
+            # make flow-queue_id take effect
             if actions != []:
                 self.action_apply(actions)
 
@@ -237,22 +242,24 @@ class FlowCollector:
                     if self.mini_stats[flow]['packet_count'] == pkt_count:
                         # marked by finished
                         self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
-                        self.mini_stats[flow]['priority'] = flow.meter_id
+                        self.mini_stats[flow]['priority'] = flow.queue_id
                         self.mini_stats[flow]['is_active'] = False
                     else:
                         # update active flow_stats
                         self.mini_stats[flow]['packet_count'] = pkt_count
                         self.mini_stats[flow]['byte_count'] = byte_count
                         self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
-                        self.mini_stats[flow]['priority'] = flow.meter_id
+                        self.mini_stats[flow]['priority'] = flow.queue_id
                         self.mini_stats[flow]['is_active'] = True
                 else:
                     # new flows, marked by active
-                    self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count, 'priority':flow.meter_id, 
+                    self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count, 'priority':flow.queue_id, 
                                             'active_time':self.UPDATE_EPSILON, 'is_active':True}
             # generate active and finished flows
             self.active_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if self.mini_stats[flow]['is_active'] and not flow.is_empty()}
+            self.lock.acquire()
             self.finished_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if (not self.mini_stats[flow]['is_active'] and not flow.is_empty())}
+            self.lock.release()
             # print("mini_stats: ", self.mini_stats)
             # print('active: ', self.active_flows)
             # print('finished: ', self.finished_flows)
@@ -288,7 +295,10 @@ class FlowCollector:
         # delete self.finished_flows from self.mini_stats
         for flow in self.finished_flows:
             del self.mini_stats[flow]
+
+        self.lock.acquire()
         self.finished_flows = {}
+        self.lock.release()
 
         # print(res)
         # print("mini_stats: ", self.mini_stats)
@@ -299,10 +309,10 @@ class FlowCollector:
     def action_apply(self, actions):
         """
         actions:[
-            [nw_src(int), nw_dst(int), nw_proto, tp_src, tp_dst, meter_id],
-            [nw_src(int), nw_dst(int), nw_proto, tp_src, tp_dst, meter_id],
+            [nw_src(int), nw_dst(int), nw_proto, tp_src, tp_dst, priority],
+            [nw_src(int), nw_dst(int), nw_proto, tp_src, tp_dst, priority],
             ...
-            [nw_src(int), nw_dst(int), nw_proto, tp_src, tp_dst, meter_id]
+            [nw_src(int), nw_dst(int), nw_proto, tp_src, tp_dst, priority]
         ]
         """
         acts = [Action(action) for action in actions]
@@ -314,13 +324,13 @@ class FlowCollector:
             for fl_d in data['1']:
                 # print(fl_d)
                 if Match.is_five_tuple(fl_d['match']) and act.eq_flow_data(fl_d['match']):
-                    # modify actions, apply the new meter id
+                    # modify actions, apply the new priority id
                     new_actions = []
                     for a in fl_d["actions"]:
-                        if "METER" in a:
+                        if "SET_QUEUE" in a:
                             new_actions.append({
-                                "type":"METER",
-                                "meter_id":act.meter_id
+                                "type":"SET_QUEUE",
+                                "queue_id":act.priority
                             })
                         if "OUTPUT" in a:
                             port = int(a.split(":")[-1])
@@ -380,7 +390,7 @@ class Action:
     def __init__(self, six_t):
         self.match = Match()
         self.match.from_five_t(six_t[:5])
-        self.meter_id = six_t[5]
+        self.priority = six_t[5]
     
     def eq_flow_data(self, df):
         assert type(df)==dict, "df should be `dict` class"
@@ -394,7 +404,7 @@ class Action:
         )
     
     def __repr__(self):
-        return self.match.__repr__()+" Meter ID: "+str(self.meter_id)
+        return self.match.__repr__()+" Priority: "+str(self.priority)
 
 class Logger:
     def __init__(self, file):
@@ -422,4 +432,4 @@ if __name__ == "__main__":
     # collector.action_apply([action])
     fc = FlowCollector(Logger('log/log.txt'))
     for _ in range(50):
-        fc.flow_collect()
+        print(fc.flow_collect())

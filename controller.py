@@ -119,7 +119,8 @@ class SimpleSwitch13(app_manager.RyuApp):
         else:
             out_port = ofproto.OFPP_FLOOD
 
-        actions = [parser.OFPActionOutput(out_port)]
+        actions = [parser.OFPActionSetQueue(0)]
+        actions.append(parser.OFPActionOutput(out_port))
 
         # install a flow to avoid packet_in next time
         # if out_port != ofproto.OFPP_FLOOD:
@@ -160,7 +161,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                 five_tuple = (ip.src, ip.dst, tcpudp.src_port, tcpudp.dst_port, ip.proto)
                 print(five_tuple)
                 if msg.buffer_id != ofproto.OFP_NO_BUFFER:
-                    self.add_flow(datapath, 1, match, actions, msg.buffer_id, enable_meter=True, timeout=idle_timeout)
+                    self.add_flow(datapath, 1, match, actions, msg.buffer_id, enable_meter=False, timeout=idle_timeout)
                     return
                 else:
-                    self.add_flow(datapath, 1, match, actions, enable_meter=True, timeout=idle_timeout)
+                    self.add_flow(datapath, 1, match, actions, enable_meter=False, timeout=idle_timeout)
