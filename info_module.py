@@ -5,6 +5,7 @@ import socket
 import numpy as np
 import threading
 import os
+from queue import Queue
 
 remote_url = "10.134.147.138"
 
@@ -63,6 +64,12 @@ class Flow:
     def contain_five_tuple(self):
         return 'nw_src' in self.match and 'nw_dst' in self.match and 'nw_proto' in self.match and 'tp_src' in self.match and 'tp_dst' in self.match
     
+    def get_five_tuple(self):
+        if self.contain_five_tuple():
+            return (self.match['nw_src'], self.match['nw_dst'], self.match['nw_proto'], self.match['tp_src'], self.match['tp_dst'])
+        else:
+            return "controller"
+
     def to_five_tuple(self):
         return [
             iptoint(self.match['nw_src']),
@@ -104,7 +111,10 @@ class FlowCollector:
     # FLOW_LEN = 7
     """ make sure that FLOW COLLECT interval is less than idle_timeout(default 60 seconds) """
     EPSILON = 3 # seconds
-    UPDATE_EPSILON = 1 # seconds
+    UPDATE_EPSILON = 0.001 # seconds
+
+    SAMPLE_EPSILON = 100 # ms
+    FLOW_DELIMETER = 1000 # ms
 
     """
     Multiple Level Feedback Queue
@@ -118,8 +128,8 @@ class FlowCollector:
     METER_CONFIG_URL: the website of meter configuration
     METER_STATS_URL: the website of meter statistics
     """
-    URL = "localhost"
-    # URL = remote_url
+    # URL = "localhost"
+    URL = remote_url
     FLOW_STATS_URL = "http://"+URL+":8080/stats/flow/1"
     FLOW_MODIFY_STRICT = "http://"+URL+":8080/stats/flowentry/modify_strict"
     FLOW_DELETE = "http://"+URL+":8080/stats/flowentry/delete"
@@ -130,9 +140,13 @@ class FlowCollector:
     
     def __init__(self, logger):
         self.logger = logger
-        self.clk = 0
+        self.clk = 0 # ms
 
-        self.flow_stats = {} # stage flow stats, discard
+        """
+        {five_tuple : {packet_count,byte_count,duration_time,active_time, priority,is_active}}
+        """
+        self.flow_stats = {} # stage flow stats
+        self.finished_queue = Queue(maxsize=1000)
         self.active_flows = {}
         self.finished_flows = {}
         """ mini_stats: {flow(five_tuple) : packet_count,byte_count,priority,active_time,is_active} """
@@ -144,8 +158,9 @@ class FlowCollector:
         self.QUEUES = [0, 1] # queue id according to each queue from high prio to low
 
         self.lock = threading.Lock()
-        threading.Thread(target=self.while_update).start()
-        threading.Thread(target=self.mark_prio).start()
+        # threading.Thread(target=self.while_update).start()
+        # threading.Thread(target=self.mark_prio).start()
+        threading.Thread(target=self.sample).start()
     
     def sum_threshold(self):
         """
@@ -224,6 +239,52 @@ class FlowCollector:
             self.update_stats()
             self.clk += self.UPDATE_EPSILON
 
+    def sample(self):
+        while True:
+            self.clk += self.SAMPLE_EPSILON
+            try:
+                response = requests.get(FlowCollector.FLOW_STATS_URL)
+                data = json.loads(response.text)
+                for flow_ in data['1']:
+                    flow = Flow(flow_)
+                    match = flow.get_five_tuple()
+                    if match == "controller":
+                        continue
+                    # print("match: ", match)
+                    if match in self.flow_stats:
+                        if self.flow_stats[match]["is_active"]:
+                            if self.flow_stats[match]["packet_count"] != flow.packet_count:
+                                self.flow_stats[match]["active_time"] = self.SAMPLE_EPSILON + self.flow_stats[match]["duration_time"]
+                            self.flow_stats[match]["packet_count"] = flow.packet_count
+                            self.flow_stats[match]["byte_count"] = flow.byte_count
+                            self.flow_stats[match]["duration_time"] += self.SAMPLE_EPSILON
+                            # print("debug: ", self.flow_stats)
+                            self.flow_stats[match]["priority"] += flow.queue_id
+                            if self.flow_stats[match]["duration_time"]-self.flow_stats[match]["active_time"] >= self.FLOW_DELIMETER:
+                                self.flow_stats[match]["is_active"] = False
+                                ## add flow into finished queue
+                                self.finished_queue.put((match, self.flow_stats[match].copy()))
+                                ## delete flow from flow table in ovs
+                                self.delete_specified_flow(flow)
+                        else:
+                            self.flow_stats[match]["packet_count"] = flow.packet_count
+                            self.flow_stats[match]["byte_count"] = flow.byte_count
+                            self.flow_stats[match]["duration_time"] = self.SAMPLE_EPSILON
+                            self.flow_stats[match]["active_time"] = self.SAMPLE_EPSILON
+                            self.flow_stats[match]["priority"] = flow.queue_id
+                            self.flow_stats[match]["is_active"] = True
+                    else:
+                        self.flow_stats[match] = {"packet_count" : flow.packet_count,
+                                                "byte_count" : flow.byte_count,
+                                                "duration_time" : self.SAMPLE_EPSILON,
+                                                "active_time" : self.SAMPLE_EPSILON,
+                                                "priority" : flow.queue_id,
+                                                "is_active" : True}
+                time.sleep(self.SAMPLE_EPSILON/1000)
+                # print("debug: ", self.flow_stats)
+            except json.decoder.JSONDecodeError as e:
+                print("Get JSONDecodeError: ", e)
+
     def update_stats(self):
         try:
             # flow collection
@@ -255,6 +316,7 @@ class FlowCollector:
                     # new flows, marked by active
                     self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count, 'priority':flow.queue_id, 
                                             'active_time':self.UPDATE_EPSILON, 'is_active':True}
+                    pass
             # generate active and finished flows
             self.active_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if self.mini_stats[flow]['is_active'] and not flow.is_empty()}
             self.lock.acquire()
@@ -276,35 +338,42 @@ class FlowCollector:
         fl_post['match'] = flow.match
         requests.post(FlowCollector.FLOW_DELETE, json.dumps(fl_post))
 
+    def convertToStandard(self, active, finished):
+        """
+        active(list): five-tuple, priority, active_time, active_size
+        finished(list): five-tuple, fct, size
+        """
+        active_s = []
+        finished_s = []
+        for e in active:
+            match = e[0]
+            info = e[1]
+            active_s.append([
+                iptoint(match[0]), iptoint(match[1]), match[2], match[3], match[4],
+                info["priority"], info["active_time"], info["byte_count"]
+            ])
+        for match in finished:
+            # match
+            m = match[1:-1].split(',')
+            finished_s.append([
+                iptoint(m[0][1:-1]), iptoint(m[1][2:-1]), int(m[2]), int(m[3]), 
+                int(m[4]), finished[match]["active_time"], 
+                finished[match]["byte_count"]
+            ])
+        active_s.sort(key=lambda a:a[7], reverse=True)
+        finished_s.sort(key=lambda a:a[6], reverse=True)
+        return (active_s, finished_s)
+
     def flow_collect(self):
+        # print("flow_collect: ", self.flow_stats)
+        active = [(match, self.flow_stats[match].copy()) for match in self.flow_stats if self.flow_stats[match]["is_active"]]
+        res = {}
+        while not self.finished_queue.empty():
+            match, info = self.finished_queue.get()
+            res[match.__str__()] = info
+        self.logger.print("finished_flows/%s:"%(self.clk)+json.dumps(res))
         time.sleep(FlowCollector.EPSILON)
-        res = self.__simplify__()
-        # print("mini_stats: ", self.mini_stats)
-        # print('finished: ', self.finished_flows)
-
-        ## TODO: print self.finished_flows into the log
-        serialize_flow = {}
-        for fl in self.finished_flows:
-            serialize_flow[fl.__str__()] = self.finished_flows[fl]
-        self.logger.print("finished_flows/%s:"%(self.clk)+json.dumps(serialize_flow))
-
-        # delete self.finished_flows from flow table #
-        for flow in self.finished_flows:
-            self.delete_specified_flow(flow)
-
-        # delete self.finished_flows from self.mini_stats
-        for flow in self.finished_flows:
-            del self.mini_stats[flow]
-
-        self.lock.acquire()
-        self.finished_flows = {}
-        self.lock.release()
-
-        # print(res)
-        # print("mini_stats: ", self.mini_stats)
-        # print('active: ', self.active_flows)
-        # print('finished: ', self.finished_flows)
-        return res
+        return self.convertToStandard(active, res)
             
     def action_apply(self, actions):
         """
@@ -431,5 +500,7 @@ if __name__ == "__main__":
     # action = [iptoint(m.nw_src), iptoint(m.nw_dst), m.nw_proto, m.tp_src, m.tp_dst, 10]
     # collector.action_apply([action])
     fc = FlowCollector(Logger('log/log.txt'))
-    for _ in range(50):
-        print(fc.flow_collect())
+    for _ in range(5000):
+        fc.flow_collect()
+        # print(fc.flow_collect())
+        # print()

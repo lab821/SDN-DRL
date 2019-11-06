@@ -16,16 +16,18 @@ def analysis_log(filename="log/log.txt", save_path="log/"):
                 if fls != {}:
                     # print(type(data), type(fls), fls)
                     for fl in fls:
-                        fn_flows.append([timestamp, fl, fls[fl]['byte_count']/(1024*1024), fls[fl]['packet_count'], fls[fl]['active_time']])
+                        fn_flows.append([timestamp/1000, fl, fls[fl]['byte_count']/(1024*1024), fls[fl]['packet_count'], fls[fl]['active_time']/1000])
             step += 1
-            # if step > 2000:
+            # if step > 1020:
             #     break
             line = f.readline()
         print("fn_flows: ", len(fn_flows), fn_flows[-1])
         obj_flows = [e for e in fn_flows if e[2] > 0.2] # only calculate size > 0MB
         print("obj_flows(size > 0): ", len(obj_flows))
         plt.figure()
+        #
         ## draw CDF about flow size distribution:MB ##
+        #
         plt.subplot(221)
         bcs = sorted([e[2] for e in obj_flows if e[2] > 0.2])      # byte_count list
         print("len(bcs): ", len(bcs), " max: ", bcs[-1])
@@ -40,7 +42,9 @@ def analysis_log(filename="log/log.txt", save_path="log/"):
         plt.plot(bcs_p[x_1mb:, 0], bcs_p[x_1mb:, 1])
         plt.xlabel("size(MB)")
         plt.ylabel("probability")
+        #
         ## draw the number of finished flows with time ##
+        #
         plt.subplot(222)
         t = 0
         flows_t = [] # format: [[fl1_1, fl1_2, ...], ...]
@@ -53,11 +57,13 @@ def analysis_log(filename="log/log.txt", save_path="log/"):
                 t = fl[0]
         # print(flows_t)
         num_f_t = np.array([[e[0][0], len(e)] for e in flows_t])
-        x_p = 0
+        x_p = 10
         plt.plot(num_f_t[x_p:, 0], num_f_t[x_p:, 1])
         plt.ylabel("number of finished flows")
         plt.xlabel("time(s)")
+        #
         ## figure about average flow completion time with time ##
+        #
         plt.subplot(223)
         avg_fct = []
         cnt_f_s = [0, 0] # number of flows, accumulation of fct
@@ -68,13 +74,39 @@ def analysis_log(filename="log/log.txt", save_path="log/"):
             avg_fct.append([fls[0][0], cnt_f_s[1]/cnt_f_s[0]])
         # print("average fct: ", avg_fct)
         avg_fct = np.array(avg_fct)
-        plt.plot(avg_fct[:, 0], avg_fct[:, 1])
+        x_p = 10
+        plt.plot(avg_fct[x_p:, 0], avg_fct[x_p:, 1])
         plt.xlabel("time(s)")
-        plt.ylabel("average FCT")
+        plt.ylabel("average FCT(s)")
 
         ## throughout
+        plt.subplot(224)
+        batch = 10
+        throughout = []
+        aggre_flows = []
+        old_t = 0
+        tmp = []
+        for e in obj_flows:
+            if e[0] != old_t:
+                aggre_flows.append(tmp)
+                old_t = e[0]
+                tmp = [e]
+            else:
+                tmp.append(e)
+        del aggre_flows[0]
+        for i in range(batch, len(aggre_flows)):
+            t = 0
+            for e in aggre_flows[i-batch:i]:
+                t += sum([8*f[2]/f[4] for f in e])
+            delta_t = aggre_flows[i-1][0][0] - aggre_flows[i-batch][0][0]
+            throughout.append([aggre_flows[i-1][0][0], t/delta_t])
+        plt.plot([e[0] for e in throughout], [e[1] for e in throughout])
+        plt.xlabel("time(s)")
+        plt.ylabel("Thoughout(Mbps)")
+
 
         # plt.show()
+
 
 def toCDF(data_l):
     """ 
@@ -118,9 +150,12 @@ def analysis_trace(filename):
         cdf = np.array(toCDF(fls))
         plt.figure()
         plt.plot(cdf[:, 0], cdf[:, 1])
+        plt.xlabel("flow size/MB")
+        plt.ylabel("probability")
 
 
 if __name__ == "__main__":
+    # analysis_new_log("log/log.txt")
     analysis_log("log/log.txt")
     # analysis_trace("log/trace200.txt")
     plt.show()
