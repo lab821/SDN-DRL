@@ -128,8 +128,8 @@ class FlowCollector:
     METER_CONFIG_URL: the website of meter configuration
     METER_STATS_URL: the website of meter statistics
     """
-    # URL = "localhost"
-    URL = remote_url
+    URL = "localhost"
+    # URL = remote_url
     FLOW_STATS_URL = "http://"+URL+":8080/stats/flow/1"
     FLOW_MODIFY_STRICT = "http://"+URL+":8080/stats/flowentry/modify_strict"
     FLOW_DELETE = "http://"+URL+":8080/stats/flowentry/delete"
