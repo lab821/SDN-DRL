@@ -70,7 +70,7 @@ class Flow:
         else:
             return "controller"
 
-    def to_five_tuple(self):
+    def to_five_list(self):
         return [
             iptoint(self.match['nw_src']),
             iptoint(self.match['nw_dst']),
@@ -111,7 +111,7 @@ class FlowCollector:
     # FLOW_LEN = 7
     """ make sure that FLOW COLLECT interval is less than idle_timeout(default 60 seconds) """
     EPSILON = 3 # seconds
-    UPDATE_EPSILON = 0.001 # seconds
+    # UPDATE_EPSILON = 0.001 # seconds
 
     SAMPLE_EPSILON = 100 # ms
     FLOW_DELIMETER = 1000 # ms
@@ -147,17 +147,17 @@ class FlowCollector:
         """
         self.flow_stats = {} # stage flow stats
         self.finished_queue = Queue(maxsize=1000)
-        self.active_flows = {}
-        self.finished_flows = {}
+        # self.active_flows = {}
+        # self.finished_flows = {}
         """ mini_stats: {flow(five_tuple) : packet_count,byte_count,priority,active_time,is_active} """
-        self.mini_stats = {} # update flow stats
+        # self.mini_stats = {} # update flow stats
 
-        self.thresholds = [100000] # len(self.threshold) is num_level
-        self.threshold_sum = [100000]
+        self.thresholds = [0] # len(self.threshold) is num_level, threshold is byte_count
+        self.threshold_sum = [0]
         # self.METER_ID = [1, 2] # meter id according to each queue from high prio to low
-        self.QUEUES = [0, 1] # queue id according to each queue from high prio to low
+        self.QUEUES = (0, 1) # queue id according to each queue from high prio to low
 
-        self.lock = threading.Lock()
+        # self.lock = threading.Lock()
         # threading.Thread(target=self.while_update).start()
         # threading.Thread(target=self.mark_prio).start()
         threading.Thread(target=self.sample).start()
@@ -183,16 +183,17 @@ class FlowCollector:
     def mark_prio(self):
         while True:
             actions = []
-            for flow in self.active_flows:
-                qid = self.judge_level(flow.packet_count)
-                if qid != flow.queue_id:
-                    # queue level not match queue id
-                    action = flow.to_five_tuple()
-                    action.extend((qid,))
-                    actions.append(action)
+            for match in self.flow_stats:
+                if match == "controller":
+                    continue
+                if self.flow_stats[match]["is_active"]:
+                    k = self.judge_level(self.flow_stats[match]["byte_count"])
+                    if self.flow_stats[match]["priority"] != k:
+                        actions.append([iptoint(match[0]), iptoint(match[1]), match[2], match[3], match[4], k])
             # make flow-queue_id take effect
             if actions != []:
                 self.action_apply(actions)
+                print("mark_prio: ", self.clk)
 
     def change_threshold(self, nthreshold):
         """
@@ -205,39 +206,39 @@ class FlowCollector:
         self.sum_threshold()
         assert len(self.thresholds) == self.num_level-1, "Error of changing thresholds"
 
-    def __simplify__(self):
-        """ 
-        neither self.active_flows nor self.finished_flows have non-five-tuple flow
-        active(list): five-tuple, priority, active_time, active_size
-        finished(list): five-tuple, fct, size
-        """
-        active = []
-        finished = []
-        for flow in self.active_flows:
-            fl = []
-            fl.extend(flow.to_five_tuple())
-            fl.extend((
-                self.active_flows[flow]['priority'],
-                self.active_flows[flow]['active_time'],
-                self.active_flows[flow]['byte_count']
-            ))
-            active.append(fl)
-        for flow in self.finished_flows:
-            fl = []
-            fl.extend(flow.to_five_tuple())
-            fl.extend((
-                self.finished_flows[flow]['active_time'],
-                self.finished_flows[flow]['byte_count']
-            ))
-            finished.append(fl)
-        active.sort(key=lambda a:a[7], reverse=True)
-        finished.sort(key=lambda a:a[6], reverse=True)
-        return (active, finished)
+    # def __simplify__(self):
+    #     """ 
+    #     neither self.active_flows nor self.finished_flows have non-five-tuple flow
+    #     active(list): five-tuple, priority, active_time, active_size
+    #     finished(list): five-tuple, fct, size
+    #     """
+    #     active = []
+    #     finished = []
+    #     for flow in self.active_flows:
+    #         fl = []
+    #         fl.extend(flow.to_five_tuple())
+    #         fl.extend((
+    #             self.active_flows[flow]['priority'],
+    #             self.active_flows[flow]['active_time'],
+    #             self.active_flows[flow]['byte_count']
+    #         ))
+    #         active.append(fl)
+    #     for flow in self.finished_flows:
+    #         fl = []
+    #         fl.extend(flow.to_five_tuple())
+    #         fl.extend((
+    #             self.finished_flows[flow]['active_time'],
+    #             self.finished_flows[flow]['byte_count']
+    #         ))
+    #         finished.append(fl)
+    #     active.sort(key=lambda a:a[7], reverse=True)
+    #     finished.sort(key=lambda a:a[6], reverse=True)
+    #     return (active, finished)
     
-    def while_update(self):
-        while True:
-            self.update_stats()
-            self.clk += self.UPDATE_EPSILON
+    # def while_update(self):
+    #     while True:
+    #         self.update_stats()
+    #         self.clk += self.UPDATE_EPSILON
 
     def sample(self):
         while True:
@@ -245,6 +246,7 @@ class FlowCollector:
             try:
                 response = requests.get(FlowCollector.FLOW_STATS_URL)
                 data = json.loads(response.text)
+                update_l = []
                 for flow_ in data['1']:
                     flow = Flow(flow_)
                     match = flow.get_five_tuple()
@@ -259,7 +261,7 @@ class FlowCollector:
                             self.flow_stats[match]["byte_count"] = flow.byte_count
                             self.flow_stats[match]["duration_time"] += self.SAMPLE_EPSILON
                             # print("debug: ", self.flow_stats)
-                            self.flow_stats[match]["priority"] += flow.queue_id
+                            self.flow_stats[match]["priority"] = flow.queue_id
                             if self.flow_stats[match]["duration_time"]-self.flow_stats[match]["active_time"] >= self.FLOW_DELIMETER:
                                 self.flow_stats[match]["is_active"] = False
                                 ## add flow into finished queue
@@ -280,54 +282,62 @@ class FlowCollector:
                                                 "active_time" : self.SAMPLE_EPSILON,
                                                 "priority" : flow.queue_id,
                                                 "is_active" : True}
+                    # here match must not be "controller"
+                    assert len(match) == 5, "Match may be 'controller'"
+                    k = self.judge_level(self.flow_stats[match]["byte_count"])
+                    if k != self.flow_stats[match]["priority"]:
+                        update_l.append([iptoint(match[0]), iptoint(match[1]), match[2], match[3], match[4], k])
+                if update_l != []:
+                    # print(update_l)
+                    self.action_apply(update_l)
                 time.sleep(self.SAMPLE_EPSILON/1000)
                 # print("debug: ", self.flow_stats)
             except json.decoder.JSONDecodeError as e:
                 print("Get JSONDecodeError: ", e)
 
-    def update_stats(self):
-        try:
-            # flow collection
-            response = requests.get(FlowCollector.FLOW_STATS_URL)
-            data = json.loads(response.text)
-            for flow_ in data['1']:
-                flow = Flow(flow_)
-                # match = json.dumps(flow.match)
-                pkt_count = flow.packet_count
-                byte_count = flow.byte_count
-                if flow in self.mini_stats:
-                    ## update all value in flow 
-                    tmp = self.mini_stats[flow]
-                    del self.mini_stats[flow]
-                    self.mini_stats[flow] = tmp
-                    if self.mini_stats[flow]['packet_count'] == pkt_count:
-                        # marked by finished
-                        self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
-                        self.mini_stats[flow]['priority'] = flow.queue_id
-                        self.mini_stats[flow]['is_active'] = False
-                    else:
-                        # update active flow_stats
-                        self.mini_stats[flow]['packet_count'] = pkt_count
-                        self.mini_stats[flow]['byte_count'] = byte_count
-                        self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
-                        self.mini_stats[flow]['priority'] = flow.queue_id
-                        self.mini_stats[flow]['is_active'] = True
-                else:
-                    # new flows, marked by active
-                    self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count, 'priority':flow.queue_id, 
-                                            'active_time':self.UPDATE_EPSILON, 'is_active':True}
-                    pass
-            # generate active and finished flows
-            self.active_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if self.mini_stats[flow]['is_active'] and not flow.is_empty()}
-            self.lock.acquire()
-            self.finished_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if (not self.mini_stats[flow]['is_active'] and not flow.is_empty())}
-            self.lock.release()
-            # print("mini_stats: ", self.mini_stats)
-            # print('active: ', self.active_flows)
-            # print('finished: ', self.finished_flows)
-            time.sleep(FlowCollector.UPDATE_EPSILON)
-        except json.decoder.JSONDecodeError as e:
-            print("JsonDecodeError: ", e)
+    # def update_stats(self):
+    #     try:
+    #         # flow collection
+    #         response = requests.get(FlowCollector.FLOW_STATS_URL)
+    #         data = json.loads(response.text)
+    #         for flow_ in data['1']:
+    #             flow = Flow(flow_)
+    #             # match = json.dumps(flow.match)
+    #             pkt_count = flow.packet_count
+    #             byte_count = flow.byte_count
+    #             if flow in self.mini_stats:
+    #                 ## update all value in flow 
+    #                 tmp = self.mini_stats[flow]
+    #                 del self.mini_stats[flow]
+    #                 self.mini_stats[flow] = tmp
+    #                 if self.mini_stats[flow]['packet_count'] == pkt_count:
+    #                     # marked by finished
+    #                     self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
+    #                     self.mini_stats[flow]['priority'] = flow.queue_id
+    #                     self.mini_stats[flow]['is_active'] = False
+    #                 else:
+    #                     # update active flow_stats
+    #                     self.mini_stats[flow]['packet_count'] = pkt_count
+    #                     self.mini_stats[flow]['byte_count'] = byte_count
+    #                     self.mini_stats[flow]['active_time'] += self.UPDATE_EPSILON
+    #                     self.mini_stats[flow]['priority'] = flow.queue_id
+    #                     self.mini_stats[flow]['is_active'] = True
+    #             else:
+    #                 # new flows, marked by active
+    #                 self.mini_stats[flow] = {'packet_count':pkt_count, 'byte_count':byte_count, 'priority':flow.queue_id, 
+    #                                         'active_time':self.UPDATE_EPSILON, 'is_active':True}
+    #                 pass
+    #         # generate active and finished flows
+    #         self.active_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if self.mini_stats[flow]['is_active'] and not flow.is_empty()}
+    #         self.lock.acquire()
+    #         self.finished_flows = {flow:self.mini_stats[flow] for flow in self.mini_stats if (not self.mini_stats[flow]['is_active'] and not flow.is_empty())}
+    #         self.lock.release()
+    #         # print("mini_stats: ", self.mini_stats)
+    #         # print('active: ', self.active_flows)
+    #         # print('finished: ', self.finished_flows)
+    #         time.sleep(FlowCollector.UPDATE_EPSILON)
+    #     except json.decoder.JSONDecodeError as e:
+    #         print("JsonDecodeError: ", e)
 
 
     def delete_specified_flow(self, flow):
@@ -410,7 +420,8 @@ class FlowCollector:
                     fl_d["dpid"] = 1
                     fl_d['actions'] = new_actions
                     # print("fl_d: ", type(fl_d), fl_d)
-                    requests.post(FlowCollector.FLOW_MODIFY_STRICT, json.dumps(fl_d))
+                    req = requests.post(FlowCollector.FLOW_MODIFY_STRICT, json.dumps(fl_d))
+                    # print(req)
 
 class Match:
     def __init__(self):

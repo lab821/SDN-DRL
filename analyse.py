@@ -21,6 +21,7 @@ def analysis_log(filename="log/log.txt", save_path="log/"):
             # if step > 1020:
             #     break
             line = f.readline()
+        fn_flows = fn_flows[100:]
         print("fn_flows: ", len(fn_flows), fn_flows[-1])
         obj_flows = [e for e in fn_flows if e[2] > 0.2] # only calculate size > 0MB
         print("obj_flows(size > 0): ", len(obj_flows))
@@ -138,14 +139,17 @@ def analysis_trace(filename):
         n = int(line.split()[-1])
         line = f.readline()
         fls = [] # unit is MB
+        pattern = []
         while line:
             l = line.split()
             time = int(l[1])
             send_num = int(l[2])
             recv_num = int(l[send_num+3])
             flow_size = [float(i) for i in l[-(send_num*recv_num):]]
+            pattern.append(flow_size)
             fls.extend(flow_size)
             line = f.readline()
+        ### plot the CDF about flow size ###
         # print(fls)
         cdf = np.array(toCDF(fls))
         plt.figure()
@@ -153,9 +157,59 @@ def analysis_trace(filename):
         plt.xlabel("flow size/MB")
         plt.ylabel("probability")
 
+        ### Pattern ###
+        last_l = [e[-1] for e in pattern]
+        print(len(last_l))
+        k = 1
+        while k < len(last_l)/2:
+            i = 0
+            j = 0
+            while i+j < k:
+                if last_l[i+j] != last_l[k+j]:
+                    break
+                j += 1
+            if i+j == k:
+                print("basic flow N: ", k)
+                break
+            k += 1
+
+def train_log(filename):
+    with open(filename, "r") as f:
+        line = f.readline()
+        k = 0
+        reward_l = []
+        while line:
+            words = line.split(":")
+            # action = json.loads(words[-1])
+            reward = float(words[-2].split(" ")[-2])
+            reward_l.append(reward)
+            # print(action, reward, type(action), type(reward))
+            line = f.readline()
+            k += 1
+            if k > 1e3:
+                break
+        
+        ### plot the figure about reward ###
+        plt.subplot(211)
+        plt.plot(range(len(reward_l)), reward_l)
+        plt.ylabel("reward")
+
+        ### plot the figure about accumulated reward ###
+        plt.subplot(212)
+        reward_acc = [0]
+        for r in reward_l:
+            reward_acc.append(reward_acc[-1] + r)
+        del reward_acc[0]
+        plt.plot(range(len(reward_acc)), reward_acc)
+        plt.ylabel("accumulated reward")
+
 
 if __name__ == "__main__":
     # analysis_new_log("log/log.txt")
-    analysis_log("log/log.txt")
+    # analysis_log("log/log_test.txt")
     # analysis_trace("log/trace200.txt")
+
+    analysis_log("log/20191112_log_1.txt")
+    plt.figure()
+    train_log("log/20191112_train_log_1.txt")
     plt.show()

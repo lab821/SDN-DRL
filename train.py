@@ -23,7 +23,7 @@ with open("log/train_log.txt", "w") as logger:
         # add randomness to action
         a = np.clip(np.random.normal(a, var), -a_bound, a_bound)+bl
         aint = [int(i) for i in a.tolist()] ## to [int, int, ...]
-        aint = [1e10]
+        # aint = [1e10]
         s_, r, done, info = env.step(aint)
         agent.store_transition(s, a, r, s_)
         
