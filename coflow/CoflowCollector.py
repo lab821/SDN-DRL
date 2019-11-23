@@ -1,3 +1,5 @@
+import sys, os
+sys.path.append(os.path.abspath("."))
 from info_module import FlowCollector, Logger
 from info_module import iptoint, inttoip
 
@@ -25,12 +27,12 @@ class CoflowCollector:
             line = f.readline()
             num_coflow = int(line)
             self.pattern = {}
-            print(num_coflow)
+            # print(num_coflow)
             for _ in range(num_coflow):
                 line = f.readline()
                 words = line.split(" ")
                 self.pattern[int(words[0])] = [iptoint(ip) for ip in words[1:] if test_ip_format(ip)]
-            print(self.pattern)
+            print("Pattern: ", self.pattern)
 
             self.attr_coflow = {}
             for id in self.pattern:
@@ -39,7 +41,7 @@ class CoflowCollector:
                         self.attr_coflow[ip] = id
                     else:
                         print("Coflow Error!")
-            print(self.attr_coflow)
+            print("Attr: ", self.attr_coflow)
     
     def CoflowsToFormat(self, coflows):
         return coflows
@@ -50,17 +52,17 @@ class CoflowCollector:
         active, finished = self.flow_collector.flow_collect()
         coflows_id = []
         for fl_a in active:
-            id1 = self.attr_coflow[fl_a[0]]
-            id2 = self.attr_coflow[fl_a[1]]
-            if id1 == id2:
+            id1 = self.attr_coflow.get(fl_a[0], -1)
+            id2 = self.attr_coflow.get(fl_a[1], -1)
+            if id1 == id2 and id1 != -1:
                 fl_a.append(id1)
                 coflows_id.append(id1)
             else:
-                fl_a.append(-1)
+                fl_a.append(-1) # means it's not a coflow
         for fl_f in finished:
-            id1 = self.attr_coflow[fl_f[0]]
-            id2 = self.attr_coflow[fl_f[1]]
-            if id1 == id2:
+            id1 = self.attr_coflow.get(fl_f[0], -1)
+            id2 = self.attr_coflow.get(fl_f[1], -1)
+            if id1 == id2 and id1 != -1:
                 fl_f.append(id1)
                 coflows_id.append(id1)
             else:
@@ -82,8 +84,8 @@ class CoflowCollector:
             durations = [fl[6] for fl in fl_as]
             durations.extend([fl[5] for fl in fl_fs])
             coflows[id]["duration"] = max(durations)
-            coflows["active_flows"] = [fl[:5] for fl in fl_as]
-            coflows["finished_flows"] = [fl[:5] for fl in fl_fs]
+            coflows[id]["active_flows"] = [fl[:5] for fl in fl_as]
+            coflows[id]["finished_flows"] = [fl[:5] for fl in fl_fs]
         return self.CoflowsToFormat(coflows)
 
     def apply_coflow_prio(self, coflows, actions):
@@ -94,6 +96,7 @@ class CoflowCollector:
         fl_actions = []
         for id in actions:
             prio = actions[id]
+            # print("active: ", coflows[id]["active_flows"])
             for fl in coflows[id]["active_flows"]:
                 flow = []
                 flow.extend(fl)
@@ -104,9 +107,9 @@ class CoflowCollector:
 
 if __name__ == "__main__":
     cc = CoflowCollector(Logger("log/log.txt"))
-    coflows = cc.collect_coflow()
-    print(coflows)
-    actions = {}
-    for id in coflows:
-        actions[id] = 1
-    cc.apply_coflow_prio(coflows, actions)
+    for _ in range(10):
+        coflows = cc.collect_coflow()
+        actions = {}
+        for id in coflows:
+            actions[id] = 1
+        cc.apply_coflow_prio(coflows, actions)
